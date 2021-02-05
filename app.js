@@ -224,18 +224,18 @@ const rallyLinkStoriesToFeatures = async(type, field, value) =>{
     const rallyResponse = await rallyFindWorkItems(type, field, value);
     const stories = rallyResponse["QueryResult"]["Results"].map(result => result["_ref"]);
     let features = [];
-    let featureCount = Math.round(stories.length/2);
+    let featureCount = Math.round(stories.length/5);
     for(let i = 0; i < featureCount; i++){
         let payload = await rallyPostPayload('portfolioitem/feature');
         let feature = await rallyCreateWorkitem(payload);
         features.push(feature['CreateResult']['Object']['_ref'])
     }
-    const pairsOfStories = stories.reduce((result, value, index, initialArr) => {
+    const groupsOfStories = stories.reduce((result, value, index, initialArr) => {
         if (index % 5 === 0)
           result.push(initialArr.slice(index, index + 5));
         return result;
       }, []);
-    pairsOfStories.forEach((pair, i) => {
+      groupsOfStories.forEach((pair, i) => {
         pair.forEach(story => {
             rallyUpdateItem(story, 'hierarchicalrequirement', 'portfolioitem', features[i])
         })
@@ -253,7 +253,7 @@ const argv = require('yargs')
     }, (argv) => {
         jiraURLs = jiraUrlMaker(argv.jiraUrl, argv.jiraProjectKey)
         jiraBulkCreateIssues(argv.count, argv.name, argv.epic)
-    }).command('rally-link', 'find stories in Rally', (yargs) => {
+    }).command('rally-link', 'find stories in Rally, create features, link them to stories', (yargs) => {
           yargs
               .positional('rallyUrl', {describe: 'Rally url'})
               .positional('rallyWorkspaceOid', {describe: 'Rally workspace ObjectID'})
