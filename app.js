@@ -50,14 +50,13 @@ const jiraSaveIssueInfo = async (issueType) => {
     return jiraCachedIssueInfo[issueType]
 }
 
-const jiraRequestBody = async (issueType) => {
+const jiraPostPayload = async (issueType, name) => {
     let body = {} 
     await jiraSaveIssueInfo(issueType)
     let timestamp = Date.now()
     if (issueType == 'Story'){
-    //if (issueType == 'Bug'){
         body = {"fields":{"project":{"key": jiraURLs.projectKey}, 
-        "summary": `story ${timestamp}`,
+        "summary": `story ${name} - ${timestamp}`,
         "description": "via REST",
         "issuetype": {"name": "Story"}}}
     } else if(issueType == 'Epic'){
@@ -69,7 +68,7 @@ const jiraRequestBody = async (issueType) => {
             if (fields[val]["name"] == 'Epic Name'){
                 body = {"fields":{"project":{"key": jiraURLs.projectKey}, 
                          [val]: `epic ${timestamp}`,
-                         "summary": `epic ${timestamp}`,
+                         "summary": `epic ${name} - ${timestamp}`,
                          "description": "via REST",
                          "issuetype": {"name": "Epic"}}}
             }
@@ -115,16 +114,14 @@ const jiraCreateIssue = async (body = {}) => {
     }
 }
 
-const jiraBulkCreateIssues = async (count, linkToEpic=false) => {  
+const jiraBulkCreateIssues = async (count, name, linkToEpic=false) => {  
     console.log(`Creating ${count} stories...`)  
     try{
         for(let i = 0; i < count; i++){
-            if(i % 10 == 0){
-                console.log('.')
-            }
             await new Promise(async next => {
-                await jiraRequestBody('Story').then(jiraCreateIssue).then(res => jiraNewIssues.push(res['key'])); 
-                //await requestBody('Bug').then(createIssue).then(res => jiraNewIssues.push(res['key'])); 
+                let body = await jiraPostPayload('Story', name);
+                let story = await jiraCreateIssue(body);
+                jiraNewIssues.push(story['key']);
                 next()
             })
         }
@@ -139,9 +136,6 @@ const jiraBulkCreateIssues = async (count, linkToEpic=false) => {
 }
 
 // ---------------------- rally --------------------------------------------
-//project: N/Another Sub Project, 29047390143/35973806807
-
-//use command line args for rallyUrl, and for workspace, project OIDs 
 const rallyApiPath = 'slm/webservice/v2.0';
 var rallyHeaders = {
     "Content-Type":"application/json",
@@ -157,7 +151,7 @@ const rallyUrlMaker = (rallyUrl, rallyWorkspaceOid, rallyProjectOid) => {
     }
 }
 
-const rallyCreatePayload = async (type) => {
+const rallyPostPayload = async (type) => {
     let timestamp = Date.now();
     let body = {[type]:{
         "workspace":`workspace/${rally.workspace}`,
@@ -191,7 +185,7 @@ const rallyFindWorkItems = async (type, field, value) => {
     */
     const endpoint = `${rally.baseUrl}/${type}?workspace=workspace/${rally.workspace}&project=project/${rally.project}`
     //const queryUrl = `${endpoint}&query=(${field} = "${value}")`;
-    const queryUrl = `${endpoint}&query=(${field} contains "${value}")`;
+    const queryUrl = `${endpoint}&query=(${field} contains "${value}")&pagesize=1000`;
     console.log(`queryUrl: ${queryUrl}`);
     try{
         const response = await fetch(`${queryUrl}`, {
@@ -229,20 +223,18 @@ const rallyUpdateItem = async (ref, type, field, value) => {
 const rallyLinkStoriesToFeatures = async(type, field, value) =>{
     const rallyResponse = await rallyFindWorkItems(type, field, value);
     const stories = rallyResponse["QueryResult"]["Results"].map(result => result["_ref"]);
-    console.log(`rallyNewStories: ${stories}`);
     let features = [];
     let featureCount = Math.round(stories.length/2);
     for(let i = 0; i < featureCount; i++){
-        let payload = await rallyCreatePayload('portfolioitem/feature');
+        let payload = await rallyPostPayload('portfolioitem/feature');
         let feature = await rallyCreateWorkitem(payload);
         features.push(feature['CreateResult']['Object']['_ref'])
     }
     const pairsOfStories = stories.reduce((result, value, index, initialArr) => {
-        if (index % 2 === 0)
-          result.push(initialArr.slice(index, index + 2));
+        if (index % 5 === 0)
+          result.push(initialArr.slice(index, index + 5));
         return result;
       }, []);
-    console.log(pairsOfStories);
     pairsOfStories.forEach((pair, i) => {
         pair.forEach(story => {
             rallyUpdateItem(story, 'hierarchicalrequirement', 'portfolioitem', features[i])
@@ -255,15 +247,12 @@ const argv = require('yargs')
         yargs
            .positional('jiraUrl', { describe: 'Jira url'})
            .positional('jiraProjectKey', {describe: 'Jira project key'})
-           .positional('count', {
-               describe: 'how many stories to create',
-               default: 10
-           }).positional('epic', {
-               describe: 'create epic, link to stories'
-           })
+           .positional('count', {describe: 'how many stories to create',default: 10})
+           .positional('name', {describe: 'Jira issue name'})
+           .positional('epic', {describe: 'create epic, link to stories'})
     }, (argv) => {
-        jiraURLs = jiraUrlMaker(argv.jiraUrl, argv.projectKey)
-        jiraBulkCreateIssues(argv.count, argv.epic)
+        jiraURLs = jiraUrlMaker(argv.jiraUrl, argv.jiraProjectKey)
+        jiraBulkCreateIssues(argv.count, argv.name, argv.epic)
     }).command('rally-link', 'find stories in Rally', (yargs) => {
           yargs
               .positional('rallyUrl', {describe: 'Rally url'})
